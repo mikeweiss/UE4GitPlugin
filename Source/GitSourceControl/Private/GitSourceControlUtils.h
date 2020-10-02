@@ -33,8 +33,17 @@ private:
 
 struct FGitVersion;
 
+class FGitLockedFilesCache
+{
+public:
+	static FDateTime LastUpdated;
+	static TMap<FString, FString> LockedFiles;
+};
+
 namespace GitSourceControlUtils
 {
+
+FCriticalSection GitCommandMutex;
 
 /**
  * Find the path to the Git binary, looking into a few places (standalone Git install, and other common tools embedding Git)
@@ -152,7 +161,7 @@ bool RunCommit(const FString& InPathToGitBinary, const FString& InRepositoryRoot
  * @param	OutErrorMessages	Any errors (from StdErr) as an array per-line
  * @returns true if the command succeeded and returned no errors
  */
-bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const bool InUsingLfsLocking, const TArray<FString>& InFiles, TArray<FString>& OutErrorMessages, TArray<FGitSourceControlState>& OutStates);
+bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const bool InUsingLfsLocking, const TArray<FString>& InFiles, TArray<FString>& OutErrorMessages, TArray<FGitSourceControlState>& OutStates, bool bInvalidateCache = false);
 
 /**
  * Run a Git "cat-file" command to dump the binary content of a revision into a file.
@@ -205,16 +214,6 @@ bool UpdateCachedStates(const TArray<FGitSourceControlState>& InStates);
  */
 void RemoveRedundantErrors(FGitSourceControlCommand& InCommand, const FString& InFilter);
 
-/**
- * Run 'git lfs locks" to extract all lock information for all files in the repository
- *
- * @param	InPathToGitBinary	The path to the Git binary
- * @param	InRepositoryRoot	The Git repository from where to run the command - usually the Game directory
- * @param   bAbsolutePaths      Whether to report absolute filenames, false for repo-relative
- * @param	OutErrorMessages    Any errors (from StdErr) as an array per-line
- * @param	OutLocks		    The lock results (file, username)
- * @returns true if the command succeeded and returned no errors
- */
-bool GetAllLocks(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const bool bAbsolutePaths, TArray<FString>& OutErrorMessages, TMap<FString, FString>& OutLocks);
+bool IsFileLFSLockable(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const FString& InFile, TArray<FString>& OutErrorMessages);
 
 }

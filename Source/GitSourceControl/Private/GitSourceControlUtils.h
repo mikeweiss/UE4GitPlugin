@@ -205,16 +205,6 @@ bool UpdateCachedStates(const TArray<FGitSourceControlState>& InStates);
  */
 void RemoveRedundantErrors(FGitSourceControlCommand& InCommand, const FString& InFilter);
 
-/**
- * Run 'git lfs locks" to extract all lock information for all files in the repository
- *
- * @param	InPathToGitBinary	The path to the Git binary
- * @param	InRepositoryRoot	The Git repository from where to run the command - usually the Game directory
- * @param   bAbsolutePaths      Whether to report absolute filenames, false for repo-relative
- * @param	OutErrorMessages    Any errors (from StdErr) as an array per-line
- * @param	OutLocks		    The lock results (file, username)
- * @returns true if the command succeeded and returned no errors
- */
-bool GetAllLocks(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const bool bAbsolutePaths, TArray<FString>& OutErrorMessages, TMap<FString, FString>& OutLocks);
+bool IsFileLFSLockable(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const FString& InFile, TArray<FString>& OutErrorMessages);
 
 }

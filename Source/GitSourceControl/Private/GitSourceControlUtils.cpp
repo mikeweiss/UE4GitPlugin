@@ -995,21 +995,6 @@ static void ParseStatusResults(const FString& InPathToGitBinary, const FString& 
 	}
 }
 
-bool GetAllLocks(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const bool bAbsolutePaths, TArray<FString>& OutErrorMessages, TMap<FString, FString>& OutLocks)
-{
-	TArray<FString> Results;
-	TArray<FString> ErrorMessages;
-	const bool bResult = RunCommand(TEXT("lfs locks"), InPathToGitBinary, InRepositoryRoot, TArray<FString>(), TArray<FString>(), Results, ErrorMessages);
-	for(const FString& Result : Results)
-	{
-		FGitLfsLocksParser LockFile(InRepositoryRoot, Result, bAbsolutePaths);
-		// TODO LFS Debug log
-		UE_LOG(LogSourceControl, Log, TEXT("LockedFile(%s, %s)"), *LockFile.LocalFilename, *LockFile.LockUser);
-		OutLocks.Add(MoveTemp(LockFile.LocalFilename), MoveTemp(LockFile.LockUser));
-	}
-
-	return bResult;
-}
 
 // Run a batch of Git "status" command to update status of given files and/or directories.
 bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InRepositoryRoot, const bool InUsingLfsLocking, const TArray<FString>& InFiles, TArray<FString>& OutErrorMessages, TArray<FGitSourceControlState>& OutStates)
@@ -1020,8 +1005,46 @@ bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InReposito
 	// 0) Issue a "git lfs locks" command at the root of the repository
 	if(InUsingLfsLocking)
 	{
-		TArray<FString> ErrorMessages;
-		GetAllLocks(InPathToGitBinary, InRepositoryRoot, true, ErrorMessages, LockedFiles);
+		const FDateTime CurrentTime = FDateTime::UtcNow();
+		FTimespan CacheTimeElapsed = CurrentTime - FGitLockedFilesCache::LastUpdated;
+		FTimespan CacheLimit = FTimespan::FromMinutes(3);
+		bool bCacheExpired = (FGitLockedFilesCache::LockedFiles.Num() < 1) || CacheTimeElapsed > CacheLimit;
+		if (bInvalidateCache || bCacheExpired)
+		{
+			TArray<FString> Results;
+			TArray<FString> ErrorMessages;
+			bool bResult = RunCommand(TEXT("lfs locks"), InPathToGitBinary, InRepositoryRoot, TArray<FString>(), TArray<FString>(), Results, ErrorMessages);
+			for (const FString& Result : Results)
+			{
+				FGitLfsLocksParser LockFile(InRepositoryRoot, Result);
+				// TODO LFS Debug log
+				UE_LOG(LogSourceControl, Log, TEXT("LockedFile(%s, %s)"), *LockFile.LocalFilename, *LockFile.LockUser);
+				LockedFiles.Add(MoveTemp(LockFile.LocalFilename), MoveTemp(LockFile.LockUser));
+			}
+
+			FGitLockedFilesCache::LockedFiles = LockedFiles;
+			FGitLockedFilesCache::LastUpdated = FDateTime::UtcNow();
+		}
+		else
+		{
+			LockedFiles = FGitLockedFilesCache::LockedFiles;
+
+			TArray<FString> Params;
+			Params.Add(TEXT("--local"));
+
+			TArray<FString> Results;
+			TArray<FString> ErrorMessages;
+			bool bResult = RunCommand(TEXT("lfs locks"), InPathToGitBinary, InRepositoryRoot, Params, TArray<FString>(), Results, ErrorMessages);
+			for (const FString& Result : Results)
+			{
+				FGitLfsLocksParser LockFile(InRepositoryRoot, Result);
+				// TODO LFS Debug log
+				UE_LOG(LogSourceControl, Log, TEXT("LockedFile(%s, %s)"), *LockFile.LocalFilename, *LockFile.LockUser);
+				LockedFiles.FindOrAdd(MoveTemp(LockFile.LocalFilename), MoveTemp(LockFile.LockUser));
+			}
+
+			FGitLockedFilesCache::LockedFiles = LockedFiles;
+		}
 	}
 
 	// Git status does not show any "untracked files" when called with files from different subdirectories! (issue #3)
@@ -1084,20 +1107,11 @@ bool RunUpdateStatus(const FString& InPathToGitBinary, const FString& InReposito
 			// TODO: should do a fetch (at least periodically).
 			TArray<FString> Results;
 			TArray<FString> ErrorMessages;
-			TArray<FString> ParametersLsRemote;
-			ParametersLsRemote.Add(TEXT("origin"));
-			ParametersLsRemote.Add(BranchName);
-			const bool bResultLsRemote = RunCommand(TEXT("ls-remote"), InPathToGitBinary, InRepositoryRoot, ParametersLsRemote, OnePath, Results, ErrorMessages);
-			// If the command is successful and there is only 1 line on the output the branch exists on remote
-			const bool bDiffAgainstRemote = bResultLsRemote && Results.Num();
-
-			Results.Reset();
-			ErrorMessages.Reset();
-			TArray<FString> ParametersLog;
-			ParametersLog.Add(TEXT("--pretty=")); // this omits the commit lines, just gets us files
-			ParametersLog.Add(TEXT("--name-only"));
-			ParametersLog.Add(bDiffAgainstRemote ? TEXT("HEAD..HEAD@{upstream}") : BranchName);
-			const bool bResultDiff = RunCommand(TEXT("log"), InPathToGitBinary, InRepositoryRoot, ParametersLog, OnePath, Results, ErrorMessages);
+			TArray<FString> ParametersDiff;
+			ParametersDiff.Add(TEXT("--name-only"));
+			ParametersDiff.Add(BranchName);
+			ParametersDiff.Add(TEXT("HEAD"));
+			const bool bResultDiff = RunCommand(TEXT("diff"), InPathToGitBinary, InRepositoryRoot, ParametersDiff, OnePath, Results, ErrorMessages);
 			OutErrorMessages.Append(ErrorMessages);
 			if (bResultDiff)
 			{

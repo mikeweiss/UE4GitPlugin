@@ -1,11 +1,5 @@
-<<<<<<< HEAD
 /Binaries/*/*.pdb
 /Binaries/*/*Debug*
 /Binaries/*/*.dylib
 /Binaries/*/*.modules
 /Intermediate
-=======
-/Binaries
-/Binaries
-/Intermediate
->>>>>>> thmhoag/master
